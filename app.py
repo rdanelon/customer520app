@@ -1,46 +1,76 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
-# Autenticação simples
-def autenticar():
-    senha = st.text_input("Digite a senha para acessar o app:", type="password")
-    if senha != "suporte25":
-        st.warning("Acesso negado.")
-        st.stop()
+# Versão 1.0.2 - Melhorias: inclusão de dados por canal (Chat, E-mail, CRM, Telefone)
+st.set_page_config(page_title="520@app - Capacidade do Suporte", layout="centered")
+st.title("Calculadora de Capacidade da Equipe de Suporte")
+st.markdown("Informe os dados abaixo para estimar a capacidade da sua equipe e comparar com a demanda esperada por canal.")
 
-# Função principal do app
-def main():
-    st.set_page_config(page_title="520@app - Capacidade da Equipe", layout="centered")
-    autenticar()
+st.header("1. Dados da Equipe")
+col1, col2 = st.columns(2)
+with col1:
+    agentes = st.number_input("Quantidade de Agentes", min_value=1, value=10)
+    horas_dia = st.number_input("Horas de trabalho por dia", min_value=1, max_value=24, value=8)
+    eficiencia = st.slider("Eficiência da equipe (%)", 50, 100, 85)
+with col2:
+    dias_uteis = st.number_input("Dias úteis por mês", min_value=1, max_value=31, value=22)
+    ocupacao = st.slider("Ocupação desejada (%)", 50, 100, 80)
+    senha = st.text_input("Senha de acesso", type="password")
 
-    st.title("520@app")
-    st.subheader("Cálculo de Capacidade da Equipe de Suporte ao Cliente")
+if senha != "suporte25":
+    st.warning("Acesso restrito. Digite a senha correta para continuar.")
+    st.stop()
 
-    st.markdown("Preencha os dados abaixo para calcular a capacidade da sua equipe:")
+# Cálculo de capacidade
+minutos_disponiveis = agentes * horas_dia * 60 * dias_uteis
+capacidade_total = minutos_disponiveis * (eficiencia / 100) * (ocupacao / 100)
 
-    with st.form("formulario"):
-        col1, col2 = st.columns(2)
+st.success(f"Capacidade total disponível da equipe: **{int(capacidade_total):,} minutos/mês**".replace(",", "."))
 
-        with col1:
-            total_agentes = st.number_input("Total de agentes disponíveis", min_value=1)
-            horas_dia = st.number_input("Horas de trabalho por dia (por agente)", min_value=1)
-            dias_uteis = st.number_input("Dias úteis no mês", min_value=1)
-        
-        with col2:
-            eficiencia = st.slider("Eficiência média (%)", 50, 100, 85)
-            tma = st.number_input("TMA médio (em minutos)", min_value=1.0)
-            ocupacao = st.slider("Ocupação desejada (%)", 50, 100, 85)
+st.header("2. Demanda por Canal")
+canal_dados = []
 
-        submit = st.form_submit_button("Calcular Capacidade")
+canais = ["Chat", "E-mail", "CRM", "Telefone"]
+for canal in canais:
+    with st.expander(f"{canal}"):
+        chamados = st.number_input(f"Chamados por mês - {canal}", min_value=0, value=0, key=f"{canal}_qtd")
+        tma = st.number_input(f"TMA médio (min) - {canal}", min_value=1, value=10, key=f"{canal}_tma")
+        carga = chamados * tma
+        canal_dados.append({
+            "Canal": canal,
+            "Chamados": chamados,
+            "TMA (min)": tma,
+            "Carga (min)": carga
+        })
 
-    if submit:
-        minutos_trabalho = total_agentes * horas_dia * 60 * dias_uteis
-        minutos_disponiveis = minutos_trabalho * (eficiencia / 100) * (ocupacao / 100)
-        capacidade_total = int(minutos_disponiveis / tma)
+# Processamento dos dados
+df = pd.DataFrame(canal_dados)
+df["% da Carga"] = (df["Carga (min)"] / capacidade_total * 100).round(1)
+df["Status"] = df["Carga (min)"].apply(lambda x: "OK" if x <= capacidade_total else "Excede")
 
-        st.success(f"Capacidade estimada de atendimento no mês: **{capacidade_total} chamados**")
-        st.caption("Essa estimativa considera a eficiência e ocupação médias definidas.")
+carga_total = df["Carga (min)"].sum()
 
-# Executa o app
-if __name__ == "__main__":
-    main()
+st.header("3. Resultado")
+
+st.subheader("Resumo por Canal")
+st.dataframe(df.style.applymap(lambda val: "color: red" if val == "Excede" else "color: green", subset=["Status"]))
+
+st.markdown(f"**Carga total estimada:** {int(carga_total):,} minutos/mês".replace(",", "."))
+if carga_total > capacidade_total:
+    st.error("A carga estimada excede a capacidade da equipe!")
+else:
+    st.success("A equipe tem capacidade suficiente para atender a demanda estimada.")
+
+# Gráfico comparativo
+grafico_df = df.copy()
+grafico_df.loc[len(grafico_df.index)] = ["Capacidade", "-", "-", capacidade_total, 100, "Total"]
+
+fig = px.bar(grafico_df, x="Canal", y="Carga (min)", color="Canal",
+             title="Demanda por Canal vs Capacidade Total",
+             text="Carga (min)", height=400)
+
+st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("---")
+st.caption("Desenvolvido por Ricardo Danelon - Versão 520@app")
